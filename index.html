@@ -1,0 +1,182 @@
+<!DOCTYPE HTML>
+
+<html>
+
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+	<title>Your Website</title>
+	<script src="http://d3js.org/d3.v3.min.js"></script>
+	<script src="http://cpettitt.github.io/project/dagre-d3/latest/dagre-d3.min.js"></script>
+	<script src="data.js"></script>
+
+	<style>
+	svg {
+	    overflow: hidden;
+	}
+
+	.node rect {
+	    stroke: #333;
+	    stroke-width: 1.5px;
+	    fill: #fff;
+	}
+
+	.node.dimmed {
+		opacity: 0.3;
+	}
+
+	.edgeLabel rect {
+	    fill: #fff;
+	}
+
+	.edgePath {
+	    stroke: #333;
+	    stroke-width: 1.5px;
+	    fill: none;
+	}
+	</style>
+</head>
+
+<svg width="100%" height="100%">
+    <g transform="translate(20,20)"/>
+</svg>
+
+<script type="text/javascript">
+var INLINE_DD = true;
+var REVERSED_ARROWS = false;
+
+Array.prototype.contains = function(obj) {
+    var i = this.length;
+    while (i--) {
+        if (this[i] === obj) {
+            return true;
+        }
+    }
+    return false;
+};
+
+var dsById = {};
+for (var i = 0; i < model.datasets.length; i++) {
+	var ds = model.datasets[i].dataset;
+	dsById[ds.identifier] = ds;
+}
+
+var ddByName = {};
+for (var i = 0; i < model.dateDimensions.length; i++) {
+	var dd = model.dateDimensions[i].dateDimension;
+	ddByName[dd.name] = dd;
+}
+var redraw = function() {
+	var createDsLabel = function(ds) {
+		var label = '<div style="padding: 10px">';
+		label += '<div>' + ds.title + '</div>';
+		if (ds.anchor) {
+			label += '<div>[K] ' + ds.anchor.attribute.title + '</div>';
+		}
+		if (ds.attributes) {
+			for (var i = 0; i < ds.attributes.length; i++) {
+				var attr = ds.attributes[i].attribute;
+				label += '<div>[a] ' + attr.title + '</div>'; 
+			}
+		}
+		if (ds.facts) {
+			for (var i = 0; i < ds.facts.length; i++) {
+				var fact = ds.facts[i].fact;
+				label += '<div>[f] ' + fact.title + '</div>'; 
+			}
+		}
+		if (INLINE_DD && ds.references) {
+			for (j = 0; j < ds.references.length; j++) {
+				var dd = ddByName[ds.references[j]];
+				if (dd) {
+					label += '<div>[dd] ' + dd.title + '</div>';
+				}
+			}
+		}
+		label += '</div>';
+		return label;
+	};
+
+	var g = new dagreD3.Digraph();
+	var allReferences = [];
+
+	for (var i = 0; i < model.datasets.length; i++) {
+		var ds = model.datasets[i].dataset;
+		g.addNode(ds.identifier, { label: createDsLabel(ds) });
+		if (ds.references) {
+			for (j = 0; j < ds.references.length; j++) {
+				var target = ds.references[j];
+				if (!INLINE_DD || dsById[target]) { // only show references to datasets
+					var eSource = REVERSED_ARROWS ? target : ds.identifier;
+					var eTarget = REVERSED_ARROWS ? ds.identifier : target;
+					allReferences.push({ source: eSource, target: eTarget });
+				}
+			}
+		}
+	}
+
+	if (!INLINE_DD) {
+		for (var i = 0; i < model.dateDimensions.length; i++) {
+			var dd = model.dateDimensions[i].dateDimension;
+			g.addNode(dd.name, { label: dd.title });
+		}
+	}
+
+	for (var i = 0; i < allReferences.length; i++) {
+		var ref = allReferences[i];
+		g.addEdge(ref.source + '_' + ref.target, ref.source, ref.target);
+	}
+
+	var layout = dagreD3.layout().rankDir("TB");
+	var renderer = new dagreD3.Renderer();
+
+	function transition(selection) {
+        return selection.transition().duration(500);
+    }
+
+    renderer.transition(transition);
+
+	layout = renderer.layout(layout).run(g, d3.select("svg g"));
+
+	var svg = d3.select("svg");
+
+	// svg.attr("width", layout.graph().width + 40)
+	//    .attr("height", layout.graph().height + 40);
+
+	var getAllDownstream = function(dsId) {
+		var downstream = [];
+		var ds = dsById[dsId];
+		if (ds && ds.references) {
+			downstream = downstream.concat(ds.references);
+			for (var i = 0; i < ds.references.length; i++) {
+				var ref = ds.references[i];
+				downstream = downstream.concat(getAllDownstream(ref));
+			}
+		}
+		return downstream;
+	};
+
+	svg.call(d3.behavior.zoom().on("zoom", function() {
+		var ev = d3.event;
+	    svg.select("g").attr("transform", "translate(" + ev.translate + ") scale(" + ev.scale + ")");
+	}));
+
+	var allNodes = svg.selectAll('g.node');
+	allNodes.attr('style', ''); // null-out inlined style
+	allNodes.on('mouseenter', function(hoveringNode) {
+		var highlightedNodes = getAllDownstream(hoveringNode);
+		highlightedNodes.push(hoveringNode);
+		allNodes.classed('dimmed', function(id) { 
+			return highlightedNodes.contains(id) ? '' : 'dimmed'; 
+		});
+	});
+	allNodes.on('mouseleave', function(id) {
+		allNodes.classed({ dimmed: false });
+	});
+};
+
+redraw();
+</script>
+
+<body>
+</body>
+</html>
